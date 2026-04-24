@@ -4,8 +4,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 0 0% 5%;
+    --foreground: 0 0% 92%;
 
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
@@ -97,5 +97,59 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: "IBM Plex Mono", monospace;
   }
+}
+
+/* Terminal scrollbar */
+.terminal-scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.terminal-scroll::-webkit-scrollbar-track {
+  background: #0a0a0a;
+}
+.terminal-scroll::-webkit-scrollbar-thumb {
+  background: #333;
+  border-radius: 2px;
+}
+.terminal-scroll::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Candle animations */
+@keyframes price-flash-up {
+  0% {
+    background-color: rgba(0, 200, 100, 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+@keyframes price-flash-down {
+  0% {
+    background-color: rgba(220, 50, 50, 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+.flash-up {
+  animation: price-flash-up 0.5s ease-out;
+}
+.flash-down {
+  animation: price-flash-down 0.5s ease-out;
+}
+
+@keyframes blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+.blink {
+  animation: blink 1.2s ease-in-out infinite;
 }
