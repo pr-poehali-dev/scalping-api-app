@@ -22,6 +22,8 @@ interface ActiveOrder {
   price: number;
   qty: number;
   side: "BUY" | "SELL";
+  leverage: number;
+  placedAt: string;
 }
 
 interface BookSettings {
@@ -78,13 +80,29 @@ function parseRows(rows: [string, string][], type: "ask" | "bid"): OrderBookRow[
 
 const TICKER_SYMS = ["BTC","ETH","BNB","SOL","XRP","DOGE","ADA","AVAX","LINK","DOT","MATIC","LTC","UNI","ATOM","APT","ARB","OP","INJ","SUI","NEAR"];
 
-// ── Candlestick Chart ────────────────────────────────────────────
+// ── Candlestick Chart (with zoom) ───────────────────────────────
 function CandleChart({ candles, pair }: { candles: Candle[]; pair: string }) {
   const W = 640, H = 330;
   const PAD = { top: 10, right: 72, bottom: 18, left: 6 };
   const chartW = W - PAD.left - PAD.right, chartH = H - PAD.top - PAD.bottom;
+
+  const [visCount, setVisCount] = useState(55);
+  const svgRef = useRef<SVGSVGElement>(null);
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      setVisCount(prev => Math.min(candles.length, Math.max(8, prev + (e.deltaY > 0 ? 5 : -5))));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [candles.length]);
+
   if (!candles.length) return <div className="flex items-center justify-center h-full text-[#333] text-[11px]">Загрузка...</div>;
-  const vis = candles.slice(-55);
+
+  const vis = candles.slice(-visCount);
   const maxH = Math.max(...vis.map(c => c.high)), minL = Math.min(...vis.map(c => c.low));
   const range = maxH - minL || 1;
   const cw = Math.max(2, Math.floor(chartW / vis.length) - 1);
@@ -93,8 +111,9 @@ function CandleChart({ candles, pair }: { candles: Candle[]; pair: string }) {
   const lines = Array.from({ length: 7 }, (_, i) => minL + step * (6 - i));
   const last = vis[vis.length - 1].close;
   const d = last >= 1000 ? 1 : last >= 1 ? 2 : 4;
+
   return (
-    <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block" }}>
+    <svg ref={svgRef} width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: "block", cursor: "crosshair" }}>
       {lines.map((p, i) => (
         <g key={i}>
           <line x1={PAD.left} y1={toY(p)} x2={W - PAD.right} y2={toY(p)} stroke="#161616" strokeWidth="1" />
@@ -113,7 +132,9 @@ function CandleChart({ candles, pair }: { candles: Candle[]; pair: string }) {
       <line x1={PAD.left} y1={toY(last)} x2={W - PAD.right} y2={toY(last)} stroke="#0077cc" strokeWidth="1" strokeDasharray="3 3" />
       <rect x={W - PAD.right} y={toY(last) - 8} width={PAD.right - 2} height={16} fill="#003366" />
       <text x={W - PAD.right + 3} y={toY(last) + 4} fill="#00aaff" fontSize="9" fontFamily="IBM Plex Mono" fontWeight="600">{last.toFixed(d)}</text>
-      <text x={PAD.left + 4} y={H - 4} fill="#333" fontSize="9" fontFamily="IBM Plex Mono">{pair}</text>
+      <text x={PAD.left + 4} y={H - 4} fill="#333" fontSize="9" fontFamily="IBM Plex Mono">{pair} • {vis.length}св</text>
+      {/* Zoom hint */}
+      <text x={W - PAD.right - 60} y={H - 4} fill="#1e1e1e" fontSize="8" fontFamily="IBM Plex Mono">колесо = зум</text>
     </svg>
   );
 }
@@ -454,9 +475,10 @@ function TickerList({ tickers, selected, onSelect }: { tickers: Ticker[]; select
 }
 
 // ── History Panel ────────────────────────────────────────────────
-function HistoryPanel({ symbol, lastPrice, orders, onCancel, onCancelAll }: {
+function HistoryPanel({ symbol, lastPrice, orders, onCancel, onCancelAll, onExecute }: {
   symbol: string; lastPrice: number; orders: ActiveOrder[];
   onCancel: (id: string) => void; onCancelAll: () => void;
+  onExecute: (order: ActiveOrder, side: "BUY" | "SELL") => void;
 }) {
   const d = lastPrice >= 1000 ? 1 : lastPrice >= 1 ? 3 : 5;
 
@@ -468,15 +490,6 @@ function HistoryPanel({ symbol, lastPrice, orders, onCancel, onCancelAll }: {
         <span className="text-[10px] text-[#555]">{symbol}/USDT</span>
       </div>
 
-      {/* Column headers */}
-      <div className="flex items-center px-2 py-[2px] text-[9px] text-[#2a2a2a] border-b border-[#0e0e0e] gap-1 shrink-0">
-        <span className="w-6"></span>
-        <span className="w-8">Тип</span>
-        <span className="flex-1 text-right">Цена</span>
-        <span className="w-10 text-right">Кол-во</span>
-        <span className="w-6"></span>
-      </div>
-
       {/* Orders list */}
       <div className="flex-1 overflow-y-auto terminal-scroll">
         {orders.length === 0 ? (
@@ -486,40 +499,50 @@ function HistoryPanel({ symbol, lastPrice, orders, onCancel, onCancelAll }: {
           </div>
         ) : (
           orders.map((o) => (
-            <div
-              key={o.id}
-              className="flex items-center px-2 py-[3px] text-[11px] gap-1 hover:bg-white/[0.04] group border-b border-[#0d0d0d]"
-            >
-              {/* Side dot */}
-              <div className={`w-[5px] h-[5px] rounded-full shrink-0 ${o.side === "BUY" ? "bg-[#44ff88]" : "bg-[#ff5555]"}`} />
-              {/* Side label */}
-              <span className="w-8 font-bold" style={{ color: o.side === "BUY" ? "#44ff88" : "#ff5555" }}>
-                {o.side}
-              </span>
-              {/* Price */}
-              <span className="flex-1 text-right text-[#aaa] tabular-nums">{o.price.toFixed(d)}</span>
-              {/* Qty */}
-              <span className="w-10 text-right text-[#555] tabular-nums">{o.qty}</span>
-              {/* Cancel */}
-              <button
-                onClick={() => onCancel(o.id)}
-                className="w-6 flex items-center justify-center text-[#2a2a2a] hover:text-[#ff5555] transition-colors"
-              >
-                <Icon name="X" size={10} />
-              </button>
+            <div key={o.id} className="border-b border-[#0e0e0e]">
+              {/* Order info row */}
+              <div className="flex items-center px-2 pt-[4px] pb-[2px] gap-1">
+                <div className={`w-[5px] h-[5px] rounded-full shrink-0 ${o.side === "BUY" ? "bg-[#44ff88]" : "bg-[#ff5555]"}`} />
+                <span className="text-[10px] font-bold" style={{ color: o.side === "BUY" ? "#44ff88" : "#ff5555" }}>
+                  {o.side}
+                </span>
+                <span className="text-[9px] text-[#e8c44a] ml-1">{o.leverage}x</span>
+                <span className="flex-1 text-right text-[#aaa] tabular-nums text-[10px]">{o.price.toFixed(d)}</span>
+                <span className="text-[9px] text-[#444] ml-1">×{o.qty}</span>
+                <button
+                  onClick={() => onCancel(o.id)}
+                  className="ml-1 text-[#2a2a2a] hover:text-[#ff5555] transition-colors"
+                >
+                  <Icon name="X" size={9} />
+                </button>
+              </div>
+              {/* Time */}
+              <div className="px-2 pb-[2px] text-[8px] text-[#2a2a2a]">{o.placedAt}</div>
+              {/* BUY / SELL execution buttons */}
+              <div className="flex px-2 pb-[4px] gap-1">
+                <button
+                  onClick={() => onExecute(o, "BUY")}
+                  className="flex-1 py-[2px] text-[9px] font-bold bg-[#0a2a0a] text-[#44ff88] border border-[#1a4a1a] hover:bg-[#0f3a0f] rounded-sm transition-colors"
+                >
+                  BUY {o.leverage}x
+                </button>
+                <button
+                  onClick={() => onExecute(o, "SELL")}
+                  className="flex-1 py-[2px] text-[9px] font-bold bg-[#2a0a0a] text-[#ff5555] border border-[#4a1a1a] hover:bg-[#3a0f0f] rounded-sm transition-colors"
+                >
+                  SELL {o.leverage}x
+                </button>
+              </div>
             </div>
           ))
         )}
       </div>
 
-      {/* Footer: cancel all */}
+      {/* Footer */}
       {orders.length > 0 && (
         <div className="shrink-0 border-t border-[#161616] px-3 py-[5px] flex items-center justify-between">
           <span className="text-[10px] text-[#444]">{orders.length} орд.</span>
-          <button
-            onClick={onCancelAll}
-            className="text-[10px] text-[#cc4444] hover:text-[#ff6666] transition-colors"
-          >
+          <button onClick={onCancelAll} className="text-[10px] text-[#cc4444] hover:text-[#ff6666] transition-colors">
             отменить все
           </button>
         </div>
@@ -539,6 +562,9 @@ export default function Index() {
   const [connected, setConnected] = useState(false);
   const [time, setTime] = useState(new Date());
   const [activeOrders, setActiveOrders] = useState<ActiveOrder[]>([]);
+  const [leverage, setLeverage] = useState(1);
+  const [lotSize, setLotSize] = useState(1);
+  const [customLot, setCustomLot] = useState("");
   const [bookSettings, setBookSettings] = useState<BookSettings>({
     lotSize: 1,
     grouping: 0,
@@ -617,8 +643,13 @@ export default function Index() {
 
   const placeOrder = useCallback((price: number, side: "BUY" | "SELL") => {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    setActiveOrders(prev => [...prev, { id, price, qty: bookSettings.lotSize, side }]);
-  }, [bookSettings.lotSize]);
+    const now = new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setActiveOrders(prev => [...prev, { id, price, qty: lotSize, side, leverage, placedAt: now }]);
+  }, [lotSize, leverage]);
+
+  const executeOrder = useCallback((order: ActiveOrder, side: "BUY" | "SELL") => {
+    setActiveOrders(prev => prev.filter(o => o.id !== order.id));
+  }, []);
 
   const cancelOrder = useCallback((id: string) => {
     setActiveOrders(prev => prev.filter(o => o.id !== id));
@@ -628,6 +659,11 @@ export default function Index() {
     setSymbol(sym);
     setActiveOrders([]);
   }, []);
+
+  // sync lotSize into bookSettings for stakan display
+  useEffect(() => {
+    setBookSettings(s => ({ ...s, lotSize }));
+  }, [lotSize]);
 
   const cur = tickers.find(t => t.symbol === symbol);
   const decimals = midPrice >= 1000 ? 1 : midPrice >= 1 ? 3 : 5;
@@ -699,29 +735,58 @@ export default function Index() {
           <div className="flex-1 overflow-hidden bg-[#050505]">
             <CandleChart candles={candles} pair={`${symbol}/USDT • ${timeframe}`} />
           </div>
-          {/* Quick lot panel */}
-          <div className="shrink-0 border-t border-[#161616] bg-[#040404] px-3 py-[5px] flex items-center gap-3">
-            <span className="text-[10px] text-[#333]">Лот:</span>
-            {[1, 2, 5, 10, 20].map(n => (
-              <button
-                key={n}
-                onClick={() => setBookSettings(s => ({ ...s, lotSize: n }))}
-                className={`w-8 h-5 text-[10px] border rounded-sm transition-colors ${
-                  bookSettings.lotSize === n
-                    ? "border-[#44ff88] text-[#44ff88] bg-[#0a1a0a]"
-                    : "border-[#1e1e1e] text-[#555] hover:border-[#444] hover:text-[#aaa]"
-                }`}
-              >
-                {n}
-              </button>
-            ))}
-            <span className="ml-auto text-[9px] text-[#222]">Клик в стакане = лимитный ордер</span>
+          {/* Lot + Leverage panel */}
+          <div className="shrink-0 border-t border-[#161616] bg-[#040404] px-3 py-[6px] flex flex-col gap-[5px]">
+            {/* Lot row */}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-[#444] w-7">Лот:</span>
+              {[1, 2, 5, 10, 20].map(n => (
+                <button
+                  key={n}
+                  onClick={() => { setLotSize(n); setCustomLot(""); }}
+                  className={`w-7 h-[18px] text-[10px] border rounded-sm transition-colors ${
+                    lotSize === n && customLot === ""
+                      ? "border-[#44ff88] text-[#44ff88] bg-[#0a1a0a]"
+                      : "border-[#1e1e1e] text-[#555] hover:border-[#444] hover:text-[#aaa]"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+              <input
+                type="number"
+                min={1}
+                placeholder="своё"
+                value={customLot}
+                onChange={e => { setCustomLot(e.target.value); if (e.target.value) setLotSize(+e.target.value); }}
+                className="w-14 h-[18px] bg-[#0e0e0e] border border-[#1e1e1e] text-[#aaa] text-[10px] px-1 rounded-sm outline-none focus:border-[#44ff88] text-right"
+              />
+              <span className="ml-auto text-[9px] text-[#444]">= <span className="text-[#888]">{lotSize}</span> шт.</span>
+            </div>
+            {/* Leverage row */}
+            <div className="flex items-center gap-2">
+              <span className="text-[9px] text-[#444] w-7">Плечо:</span>
+              {[1, 2, 3, 5, 10, 20, 50].map(lv => (
+                <button
+                  key={lv}
+                  onClick={() => setLeverage(lv)}
+                  className={`px-[5px] h-[18px] text-[10px] border rounded-sm transition-colors ${
+                    leverage === lv
+                      ? "border-[#e8c44a] text-[#e8c44a] bg-[#1a1500]"
+                      : "border-[#1e1e1e] text-[#555] hover:border-[#555] hover:text-[#999]"
+                  }`}
+                >
+                  {lv}x
+                </button>
+              ))}
+              <span className="ml-auto text-[9px] text-[#e8c44a]">× {leverage} = <span className="text-[#aaa]">{lotSize * leverage}</span></span>
+            </div>
           </div>
         </div>
 
         {/* History */}
         <div className="w-[205px] shrink-0 border-r border-[#121212]">
-          <HistoryPanel symbol={symbol} lastPrice={midPrice || 1} orders={activeOrders} onCancel={cancelOrder} onCancelAll={() => setActiveOrders([])} />
+          <HistoryPanel symbol={symbol} lastPrice={midPrice || 1} orders={activeOrders} onCancel={cancelOrder} onCancelAll={() => setActiveOrders([])} onExecute={executeOrder} />
         </div>
 
         {/* Tickers */}
