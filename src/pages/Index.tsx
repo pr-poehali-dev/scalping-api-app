@@ -42,21 +42,35 @@ const fmtK = (v: number) => {
 };
 const priceStr = (p: number, d: number) => p.toFixed(d);
 const BINANCE_WS = "wss://stream.binance.com:9443/stream?streams=";
+const PROXY = "https://functions.poehali.dev/d688392a-2d9b-4201-8988-a60367144c87";
+
+function binanceUrl(endpoint: string, params: Record<string, string> = {}) {
+  const qs = new URLSearchParams({ endpoint, ...params }).toString();
+  return `${PROXY}?${qs}`;
+}
 
 async function fetchDepthSnapshot(sym: string) {
-  const r = await fetch(`https://api.binance.com/api/v3/depth?symbol=${sym}&limit=20`);
+  const r = await fetch(binanceUrl("/api/v3/depth", { symbol: sym, limit: "20" }));
   return r.json() as Promise<{ bids: [string, string][]; asks: [string, string][] }>;
 }
 async function fetchKlines(sym: string, interval: string, limit = 60): Promise<Candle[]> {
-  const r = await fetch(`https://api.binance.com/api/v3/klines?symbol=${sym}&interval=${interval}&limit=${limit}`);
+  const r = await fetch(binanceUrl("/api/v3/klines", { symbol: sym, interval, limit: String(limit) }));
   const d: [number, string, string, string, string, string][] = await r.json();
   return d.map((k) => ({ time: k[0], open: +k[1], high: +k[2], low: +k[3], close: +k[4], volume: +k[5] }));
 }
 async function fetch24hTickers(symbols: string[]): Promise<Ticker[]> {
-  const syms = JSON.stringify(symbols.map((s) => `"${s}USDT"`));
-  const r = await fetch(`https://api.binance.com/api/v3/ticker/24hr?symbols=${encodeURIComponent(syms)}`);
-  const d: { symbol: string; priceChangePercent: string; bidPrice: string }[] = await r.json();
-  return d.map((t) => ({ symbol: t.symbol.replace("USDT", ""), change: +t.priceChangePercent, bid: +t.bidPrice }));
+  const results = await Promise.all(
+    symbols.map(async (s) => {
+      try {
+        const r = await fetch(binanceUrl("/api/v3/ticker/24hr", { symbol: `${s}USDT` }));
+        const t: { symbol: string; priceChangePercent: string; bidPrice: string } = await r.json();
+        return { symbol: t.symbol.replace("USDT", ""), change: +t.priceChangePercent, bid: +t.bidPrice };
+      } catch {
+        return null;
+      }
+    })
+  );
+  return results.filter(Boolean) as Ticker[];
 }
 function parseRows(rows: [string, string][], type: "ask" | "bid"): OrderBookRow[] {
   return rows.slice(0, 25).map(([p, q]) => ({ price: +p, volume: +q, type }));

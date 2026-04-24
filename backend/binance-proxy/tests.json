@@ -1,0 +1,20 @@
+{
+  "tests": [
+    {
+      "name": "Depth snapshot BTCUSDT",
+      "method": "GET",
+      "path": "/?endpoint=/api/v3/depth&symbol=BTCUSDT&limit=5",
+      "expectedStatus": 200,
+      "expectedBody": {"bids": [], "asks": []},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "24h ticker BTCUSDT",
+      "method": "GET",
+      "path": "/?endpoint=/api/v3/ticker/24hr&symbol=BTCUSDT",
+      "expectedStatus": 200,
+      "expectedBody": {"symbol": "BTCUSDT"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
