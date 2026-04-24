@@ -454,43 +454,76 @@ function TickerList({ tickers, selected, onSelect }: { tickers: Ticker[]; select
 }
 
 // ── History Panel ────────────────────────────────────────────────
-function HistoryPanel({ symbol, lastPrice, orders, onCancel }: {
-  symbol: string; lastPrice: number; orders: ActiveOrder[]; onCancel: (id: string) => void;
+function HistoryPanel({ symbol, lastPrice, orders, onCancel, onCancelAll }: {
+  symbol: string; lastPrice: number; orders: ActiveOrder[];
+  onCancel: (id: string) => void; onCancelAll: () => void;
 }) {
   const d = lastPrice >= 1000 ? 1 : lastPrice >= 1 ? 3 : 5;
-  const trades = [
-    { time: "09:41", side: "BUY", price: lastPrice * 0.9994, pnl: +1.24 },
-    { time: "09:38", side: "SELL", price: lastPrice * 1.0003, pnl: -0.87 },
-    { time: "09:35", side: "BUY", price: lastPrice * 0.9988, pnl: +2.41 },
-    { time: "09:30", side: "SELL", price: lastPrice * 1.0007, pnl: -1.12 },
-    { time: "09:25", side: "BUY", price: lastPrice * 0.9991, pnl: +0.98 },
-  ];
+
   return (
     <div className="flex flex-col h-full bg-[#070707]">
-      <div className="flex items-center justify-between px-3 py-[4px] border-b border-[#181818]">
-        <span className="text-[10px] text-[#888] tracking-[0.15em] uppercase font-semibold">История</span>
-        <span className="text-[12px] text-[#ddd] font-bold">баланс $150</span>
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-[4px] border-b border-[#181818] shrink-0">
+        <span className="text-[10px] text-[#888] tracking-[0.15em] uppercase font-semibold">Мои ордера</span>
+        <span className="text-[10px] text-[#555]">{symbol}/USDT</span>
       </div>
-      <div className="px-3 py-[2px] border-b border-[#101010] text-[11px] flex gap-2">
-        <span className="text-[#555]">{symbol.toLowerCase()}/usdt</span>
-        <span className="text-[#cc4444] cursor-pointer hover:text-[#ff7777]">отменить всё</span>
+
+      {/* Column headers */}
+      <div className="flex items-center px-2 py-[2px] text-[9px] text-[#2a2a2a] border-b border-[#0e0e0e] gap-1 shrink-0">
+        <span className="w-6"></span>
+        <span className="w-8">Тип</span>
+        <span className="flex-1 text-right">Цена</span>
+        <span className="w-10 text-right">Кол-во</span>
+        <span className="w-6"></span>
       </div>
-      <div className="flex px-3 py-[1px] text-[9px] text-[#2a2a2a] border-b border-[#0e0e0e] gap-2">
-        <span className="w-10">Время</span><span className="w-8">Тип</span>
-        <span className="flex-1 text-right">Цена</span><span className="w-12 text-right">PnL</span>
-      </div>
+
+      {/* Orders list */}
       <div className="flex-1 overflow-y-auto terminal-scroll">
-        {trades.map((t, i) => (
-          <div key={i} className="flex items-center px-3 py-[2px] text-[11px] gap-2 hover:bg-white/[0.03]">
-            <span className="w-10 text-[#444]">{t.time}</span>
-            <span className="w-8" style={{ color: t.side === "BUY" ? "#44ff88" : "#ff5555" }}>{t.side}</span>
-            <span className="flex-1 text-right text-[#777] tabular-nums">{t.price.toFixed(d)}</span>
-            <span className="w-12 text-right tabular-nums" style={{ color: t.pnl >= 0 ? "#44ff88" : "#ff5555" }}>
-              {t.pnl >= 0 ? "+" : ""}${Math.abs(t.pnl).toFixed(2)}
-            </span>
+        {orders.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full gap-2 text-[#222]">
+            <span className="text-[11px]">Нет активных ордеров</span>
+            <span className="text-[9px] text-[#1a1a1a]">кликни по цене в стакане</span>
           </div>
-        ))}
+        ) : (
+          orders.map((o) => (
+            <div
+              key={o.id}
+              className="flex items-center px-2 py-[3px] text-[11px] gap-1 hover:bg-white/[0.04] group border-b border-[#0d0d0d]"
+            >
+              {/* Side dot */}
+              <div className={`w-[5px] h-[5px] rounded-full shrink-0 ${o.side === "BUY" ? "bg-[#44ff88]" : "bg-[#ff5555]"}`} />
+              {/* Side label */}
+              <span className="w-8 font-bold" style={{ color: o.side === "BUY" ? "#44ff88" : "#ff5555" }}>
+                {o.side}
+              </span>
+              {/* Price */}
+              <span className="flex-1 text-right text-[#aaa] tabular-nums">{o.price.toFixed(d)}</span>
+              {/* Qty */}
+              <span className="w-10 text-right text-[#555] tabular-nums">{o.qty}</span>
+              {/* Cancel */}
+              <button
+                onClick={() => onCancel(o.id)}
+                className="w-6 flex items-center justify-center text-[#2a2a2a] hover:text-[#ff5555] transition-colors"
+              >
+                <Icon name="X" size={10} />
+              </button>
+            </div>
+          ))
+        )}
       </div>
+
+      {/* Footer: cancel all */}
+      {orders.length > 0 && (
+        <div className="shrink-0 border-t border-[#161616] px-3 py-[5px] flex items-center justify-between">
+          <span className="text-[10px] text-[#444]">{orders.length} орд.</span>
+          <button
+            onClick={onCancelAll}
+            className="text-[10px] text-[#cc4444] hover:text-[#ff6666] transition-colors"
+          >
+            отменить все
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -688,7 +721,7 @@ export default function Index() {
 
         {/* History */}
         <div className="w-[205px] shrink-0 border-r border-[#121212]">
-          <HistoryPanel symbol={symbol} lastPrice={midPrice || 1} orders={activeOrders} onCancel={cancelOrder} />
+          <HistoryPanel symbol={symbol} lastPrice={midPrice || 1} orders={activeOrders} onCancel={cancelOrder} onCancelAll={() => setActiveOrders([])} />
         </div>
 
         {/* Tickers */}
